@@ -73,6 +73,8 @@ public class MainVerticle extends AbstractVerticle {
 
   private Map<String, TokenCreator> clientTokenCreatorMap;
 
+  private Map<String, String> permissionsTokenMap;
+
   TokenCreator getTokenCreator() throws JOSEException {
     String keySetting = System.getProperty("jwt.signing.key");
     return new TokenCreator(keySetting);
@@ -126,6 +128,7 @@ public class MainVerticle extends AbstractVerticle {
     }
 
     clientTokenCreatorMap = new HashMap<>();
+    permissionsTokenMap = new HashMap<>();
 
     tokenCache = new LimitedSizeQueue<>(MAX_CACHED_TOKENS);
     String logLevel = System.getProperty("log.level", null);
@@ -391,6 +394,8 @@ public class MainVerticle extends AbstractVerticle {
   }
 
   private void handleAuthorize(RoutingContext ctx) {
+    long startTimeNano = System.nanoTime();
+
     logger.debug("Calling handleAuthorize for " + ctx.request().absoluteURI());
     String requestId = ctx.request().headers().get(REQUESTID_HEADER);
     String userId = ctx.request().headers().get(USERID_HEADER);
@@ -429,29 +434,41 @@ public class MainVerticle extends AbstractVerticle {
       candidateToken = null;
     }
 
+    logger.info("id="+ requestId + " stage 1 " + (System.nanoTime() - startTimeNano));
+
     /*
       In order to make our request to the permissions module
       we generate a custom token (since we have that power) that
       has the necessary permissions in it. This prevents an
       ugly 'lookup loop'
     */
-    String permissionsRequestToken;
-    JsonObject permissionRequestPayload = new JsonObject()
-      .put("sub", "_AUTHZ_MODULE_")
-      .put("tenant", tenant)
-      .put("dummy", true)
-      .put("request_id", "PERMISSIONS_REQUEST_TOKEN")
-      .put("extra_permissions", new JsonArray()
-        .add(PERMISSIONS_PERMISSION_READ_BIT)
-        .add(PERMISSIONS_USER_READ_BIT));
+    String permissionsRequestToken = null;
+    synchronized (permissionsTokenMap) {
+      permissionsRequestToken = permissionsTokenMap.get(tenant);
+      if (permissionsRequestToken == null) {
+        logger.info("Generate permissions request token for " + tenant);
+        JsonObject permissionRequestPayload = new JsonObject()
+          .put("sub", "_AUTHZ_MODULE_")
+          .put("tenant", tenant)
+          .put("dummy", true)
+          .put("request_id", "PERMISSIONS_REQUEST_TOKEN")
+          .put("extra_permissions", new JsonArray()
+            .add(PERMISSIONS_PERMISSION_READ_BIT)
+            .add(PERMISSIONS_USER_READ_BIT));
 
-    try {
-      permissionsRequestToken = tokenCreator.createJWTToken(permissionRequestPayload.encode());
-    } catch (Exception e) {
-      endText(ctx, 500, "Error creating permission request token: ", e);
-      return;
+        try {
+          permissionsRequestToken = tokenCreator.createJWTToken(permissionRequestPayload.encode());
+        } catch (Exception e) {
+          endText(ctx, 500, "Error creating permission request token: ", e);
+          return;
+        }
+        permissionsTokenMap.put(tenant, permissionsRequestToken);
+      } else {
+        logger.info("Cached permissions request token for tenant " + tenant);
+      }
     }
 
+    logger.info("id="+ requestId + " stage 2 " + (System.nanoTime() - startTimeNano));
     if (candidateToken == null) {
       logger.info("Generating dummy authtoken");
       JsonObject dummyPayload = new JsonObject();
@@ -718,6 +735,7 @@ public class MainVerticle extends AbstractVerticle {
         ctx.response().putHeader(USERID_HEADER, finalUserId);
       }
 
+      logger.info("id="+ requestId + " end " + (System.nanoTime() - startTimeNano));
       ctx.response().end();
     });
   }
