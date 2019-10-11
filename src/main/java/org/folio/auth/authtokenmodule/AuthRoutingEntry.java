@@ -46,12 +46,12 @@ public class AuthRoutingEntry {
     if (!ctx.request().path().startsWith(endpoint)) {
       return false;
     }
-    JsonObject claims = getClaims(authToken);
-    JsonArray extraPermissions = claims.getJsonArray("extra_permissions");
-    if (extraPermissions == null) {
-      extraPermissions = new JsonArray();
-    }
     if (ctx.getBodyAsString() == null || ctx.getBodyAsString().isEmpty()) {
+      JsonObject claims = getClaims(authToken);
+      JsonArray extraPermissions = claims.getJsonArray("extra_permissions");
+      if (extraPermissions == null) {
+        extraPermissions = new JsonArray();
+      }
       logger.debug(String.format("No body found in request for %s, treating as filter", endpoint));
       //check for permissions
       boolean allFound = true;
