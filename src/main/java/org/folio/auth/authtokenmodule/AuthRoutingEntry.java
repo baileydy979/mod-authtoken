@@ -43,13 +43,13 @@ public class AuthRoutingEntry {
   Return true if we're handling the route, false if pass-thru
    */
   public boolean handleRoute(RoutingContext ctx, String authToken, String moduleTokens) {
+    if (!ctx.request().path().startsWith(endpoint)) {
+      return false;
+    }
     JsonObject claims = getClaims(authToken);
     JsonArray extraPermissions = claims.getJsonArray("extra_permissions");
     if (extraPermissions == null) {
       extraPermissions = new JsonArray();
-    }
-    if (!ctx.request().path().startsWith(endpoint)) {
-      return false;
     }
     if (ctx.getBodyAsString() == null || ctx.getBodyAsString().isEmpty()) {
       logger.debug(String.format("No body found in request for %s, treating as filter", endpoint));
@@ -64,14 +64,12 @@ public class AuthRoutingEntry {
       if (!allFound) {
         logger.error(String.format("Insufficient permissions to access endpoint %s", endpoint));
         ctx.response()
-          .setChunked(true)
           .setStatusCode(401)
           .end(String.format("Missing required module-level permissions for endpoint '%s'",
             endpoint));
       } else {
         String magicPermission = getMagicPermission(endpoint);
         ctx.response()
-          .setChunked(true)
           .setStatusCode(202)
           .putHeader(PERMISSIONS_HEADER, new JsonArray().add(magicPermission).encode())
           .putHeader(OKAPI_TOKEN_HEADER, authToken)
@@ -80,14 +78,16 @@ public class AuthRoutingEntry {
       }
       return true;
     } else {
-      logger.debug(String.format("Body found in request for %s, treating as request", endpoint));
       JsonArray requestPerms = null;
-      try {
-        requestPerms = new JsonArray(ctx.request().headers().get(PERMISSIONS_HEADER));
-      } catch (io.vertx.core.json.DecodeException dex) {
-        logger.warn(String.format("Error parsing permissions header: %s",
-          dex.getLocalizedMessage()));
-        logger.warn(String.format("Headers are: %s", ctx.request().headers().toString()));
+      final String permissionsHeader = ctx.request().headers().get(PERMISSIONS_HEADER);
+      if (permissionsHeader != null) {
+        try {
+          requestPerms = new JsonArray(permissionsHeader);
+        } catch (io.vertx.core.json.DecodeException dex) {
+          logger.warn(String.format("Error parsing permissions header: %s",
+            dex.getLocalizedMessage()));
+          logger.warn(String.format("Headers are: %s", ctx.request().headers().toString()));
+        }
       }
       boolean passThrough = false;
       if (requestPerms != null && requestPerms.contains(getMagicPermission(endpoint))) {

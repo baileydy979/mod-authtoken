@@ -396,7 +396,6 @@ public class MainVerticle extends AbstractVerticle {
   private void handleAuthorize(RoutingContext ctx) {
     long startTimeNano = System.nanoTime();
 
-    logger.debug("Calling handleAuthorize for " + ctx.request().absoluteURI());
     String requestId = ctx.request().headers().get(REQUESTID_HEADER);
     String userId = ctx.request().headers().get(USERID_HEADER);
     String tenant = ctx.request().headers().get(OKAPI_TENANT_HEADER);
@@ -434,7 +433,7 @@ public class MainVerticle extends AbstractVerticle {
       candidateToken = null;
     }
 
-    logger.info("id="+ requestId + " stage 1 " + (System.nanoTime() - startTimeNano));
+    long stage1Nano = System.nanoTime() - startTimeNano;
 
     /*
       In order to make our request to the permissions module
@@ -455,7 +454,6 @@ public class MainVerticle extends AbstractVerticle {
           .put("extra_permissions", new JsonArray()
             .add(PERMISSIONS_PERMISSION_READ_BIT)
             .add(PERMISSIONS_USER_READ_BIT));
-
         try {
           permissionsRequestToken = tokenCreator.createJWTToken(permissionRequestPayload.encode());
         } catch (Exception e) {
@@ -463,14 +461,11 @@ public class MainVerticle extends AbstractVerticle {
           return;
         }
         permissionsTokenMap.put(tenant, permissionsRequestToken);
-      } else {
-        logger.info("Cached permissions request token for tenant " + tenant);
       }
     }
 
-    logger.info("id="+ requestId + " stage 2 " + (System.nanoTime() - startTimeNano));
+    long stage2Nano = System.nanoTime() - startTimeNano;
     if (candidateToken == null) {
-      logger.info("Generating dummy authtoken");
       JsonObject dummyPayload = new JsonObject();
       try {
         //Generate a new "dummy" token
@@ -494,6 +489,7 @@ public class MainVerticle extends AbstractVerticle {
       }
     }
  
+    long stage3Nano = System.nanoTime() - startTimeNano;
     final String authToken = candidateToken;
     logger.debug("Final authToken is " + authToken);
     final String errMsg = "Invalid token";
@@ -529,7 +525,7 @@ public class MainVerticle extends AbstractVerticle {
     }
 
     String tokenUserId = tokenClaims.getString(TOKEN_USER_ID_FIELD);
-    if(tokenUserId != null) {
+    if (tokenUserId != null) {
       if (userId != null) {
         if (!userId.equals(tokenUserId)) {
           endText(ctx, 403, 
@@ -548,7 +544,7 @@ public class MainVerticle extends AbstractVerticle {
 
     //Check and see if we have any module permissions defined
     JsonArray extraPermissionsCandidate = getClaims(authToken).getJsonArray("extra_permissions");
-    if(extraPermissionsCandidate == null) {
+    if (extraPermissionsCandidate == null) {
       extraPermissionsCandidate = new JsonArray();
     }
 
@@ -567,7 +563,6 @@ public class MainVerticle extends AbstractVerticle {
     //Instead of storing tokens, let's store an array of objects that each
 
     JsonObject moduleTokens = new JsonObject();
-    /* TODO get module permissions (if they exist) */
     if (ctx.request().headers().contains(MODULE_PERMISSIONS_HEADER)) {
       JsonObject modulePermissions = new JsonObject(ctx.request().headers().get(MODULE_PERMISSIONS_HEADER));
       for(String moduleName : modulePermissions.fieldNames()) {
@@ -604,13 +599,11 @@ public class MainVerticle extends AbstractVerticle {
     a new permission, auth.signtoken.execute is attached to the outgoing request
     which the /token handler will check for when it processes the actual request
     */
-
-    for(AuthRoutingEntry authRoutingEntry : authRoutingEntryList) {
-      if(authRoutingEntry.handleRoute(ctx, authToken, moduleTokens.encode())) {
+    for (AuthRoutingEntry authRoutingEntry : authRoutingEntryList) {
+      if (authRoutingEntry.handleRoute(ctx, authToken, moduleTokens.encode())) {
         return;
       }
     }
-
     //Populate the permissionsRequired array from the header
     JsonArray permissionsRequired = new JsonArray();
     JsonArray permissionsDesired = new JsonArray();
@@ -661,6 +654,7 @@ public class MainVerticle extends AbstractVerticle {
           + finalUserId + "': " + res.cause().getLocalizedMessage());
         return;
       }
+      long stage4Nano = System.nanoTime() - startTimeNano;
 
       JsonArray permissions = new JsonArray();
       JsonArray userPermissions = res.result().getUserPermissions();
@@ -724,19 +718,21 @@ public class MainVerticle extends AbstractVerticle {
 
       //Return header containing relevant permissions
       ctx.response()
-              .setChunked(true)
-              .setStatusCode(202)
-              .putHeader(CONTENT_TYPE, "text/plain")
-              .putHeader(PERMISSIONS_HEADER, permissions.encode())
-              .putHeader(MODULE_TOKENS_HEADER, moduleTokens.encode())
-              .putHeader("Authorization", "Bearer " + token)
-              .putHeader(OKAPI_TOKEN_HEADER, token);
+        .setStatusCode(202)
+        .putHeader(CONTENT_TYPE, "text/plain")
+        .putHeader(PERMISSIONS_HEADER, permissions.encode())
+        .putHeader(MODULE_TOKENS_HEADER, moduleTokens.encode())
+        .putHeader("Authorization", "Bearer " + token)
+        .putHeader(OKAPI_TOKEN_HEADER, token);
       if (finalUserId != null) {
         ctx.response().putHeader(USERID_HEADER, finalUserId);
       }
 
-      logger.info("id="+ requestId + " end " + (System.nanoTime() - startTimeNano));
       ctx.response().end();
+      long stage5Nano = System.nanoTime() - startTimeNano;
+
+      logger.info("id="+ requestId + " end " + stage1Nano + " " + stage2Nano +
+        " " + stage3Nano + " " + stage4Nano + " " + stage5Nano);
     });
   }
 

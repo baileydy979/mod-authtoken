@@ -605,7 +605,7 @@ public class AuthTokenTest {
       .body(payload.encode())
       .post("/token")
       .then()
-      .statusCode(403);
+      .statusCode(403).body(containsString("Missing permissions to access endpoint '/token'"));
 
     logger.info("POST signing request with good token, no payload");
     given()
