@@ -513,7 +513,7 @@ public class MainVerticle extends AbstractVerticle {
       return;
     }
 
-    JsonObject tokenClaims = getClaims(authToken);
+    final JsonObject tokenClaims = getClaims(authToken);
 
     String username = tokenClaims.getString("sub");
     String jwtTenant = tokenClaims.getString("tenant");
@@ -543,7 +543,7 @@ public class MainVerticle extends AbstractVerticle {
     final String finalUserId = userId;
 
     //Check and see if we have any module permissions defined
-    JsonArray extraPermissionsCandidate = getClaims(authToken).getJsonArray("extra_permissions");
+    JsonArray extraPermissionsCandidate = tokenClaims.getJsonArray("extra_permissions");
     if (extraPermissionsCandidate == null) {
       extraPermissionsCandidate = new JsonArray();
     }
